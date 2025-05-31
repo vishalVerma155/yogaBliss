@@ -1,0 +1,180 @@
+const User = require('../../model/user/user.model.js');
+const { comparePassword, hashPassword } = require('../../utils/bcrypt.js');
+const generateJWT = require('../../utils/jwt.js')
+
+
+
+// Register
+const registerUser = async (req, res) => {
+    try {
+        const {
+            fullName,
+            email,
+            password,
+            country,
+            address,
+            phone
+        } = req.body;
+
+    const image = req.file?.path || undefined;
+
+
+        // check blank fields
+        if (!fullName || fullName && fullName.trim() === "" || !email || email && email.trim() === "" || !password || password && password.trim() === "" || !phone || !country || country && country.trim() === "") {
+            return res.status(401).json({ success: false, error: " Name, Email, country, phone number and Password are compulsary" });
+        }
+
+        // check if affiliate is already existed
+        const isUserExisted = await User.findOne({
+            $or: [
+                { email: email },
+                { phone: phone }
+            ]
+        });
+
+        // 
+        if (isUserExisted) {
+            return res.status(401).json({ success: false, error: "User is already existed. Please login or choose other user name" });
+        }
+
+        const hashedPassword = await hashPassword(password);
+
+        // create Vendor
+        const newUser = new User({
+            fullName,
+            email,
+            country,
+            address,
+            phone,
+            password: hashedPassword,
+            profilePhoto : image
+        })
+
+        // save affiliate
+        await newUser.save();
+
+        // return response
+        res.status(200).json({ success: true, Message: "User has been  sucessfully register.", newUser });
+    } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+// Login
+const loginUser = async (req, res) => {
+    try {
+        const { email, password } = req.body;
+
+        if (!email || email && email.trim() === "" || !password || password && password.trim() === "") {
+            return res.status(401).json({ success: false, error: "All fields are compulsary" });
+        }
+
+        const user = await User.findOne({
+            $or: [
+                { email },
+                { phone: email }
+            ]
+        });
+
+
+        if (!user) {
+            return res.status(401).json({ success: false, error: "User is not existed." });
+        }
+
+        // compare password
+        const isPasswordCorrect = await comparePassword(password, user.password);
+
+        if (!isPasswordCorrect) {
+            return res.status(401).json({ success: false, error: "Invalid password" });
+        }
+
+        const payload = {
+            _id: user._id,
+            email: user.email
+        }
+
+        // generate jwt token
+        const accessToken = generateJWT(payload);
+
+        res.cookie("AccessToken", accessToken, {
+            httpOnly: true,
+            secure: true,
+            sameSite: 'None'
+        });
+
+        // return response
+        return res.status(200).json({ success: true, Message: "User has been sucessfully Loged in." });
+
+    } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
+
+const getUserProfile = async (req, res) => {
+    try {
+
+        const userId = req.user._id;
+
+        if (!userId) {
+            return res.status(400).json({ success: true, error: "user id not found" });
+        }
+
+        const user = await User.findById(userId).select('-password');
+
+        if (!user) {
+            return res.status(400).json({ success: true, error: "user not found" });
+        }
+
+        // return response
+        return res.status(200).json({ success: true, Message: "User has been sucessfully fetched", user });
+
+    } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
+
+
+const getUserProfilesForAdmin = async (req, res) => {
+    try {
+
+        if (req.user.full !== "admin") {
+            return res.status(400).json({ success: true, error: "Only admin can do this" });
+        }
+
+        const user = await User.find().select('-password');
+
+        // return response
+        return res.status(200).json({ success: true, Message: "Users has been sucessfully fetched", user });
+
+    } catch (error) {
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
+
+
+// Admin Logout
+const logoutUser = async (req, res) => {
+    try {
+        res.clearCookie("AccessToken", {
+            httpOnly: true,
+            secure: true,
+            sameSite: "None",
+        });
+
+        return res.json({ success: true, message: "Logged out successfully" });
+    } catch (error) {
+        return res.status(500).json({ success: false, message: error.message });
+    }
+};
+
+const authenticationApiUser = (req, res) => {
+    try {
+
+        return res.status(200).json({ success: true, message: "Authentication successfully." });
+    } catch (error) {
+        res.status(404).json({ success: false, error: error.message });
+    }
+}
+
+
+module.exports = { registerUser, loginUser, getUserProfile, logoutUser, getUserProfilesForAdmin, authenticationApiUser }
